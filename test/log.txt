@@ -1,0 +1,1 @@
+Epoch	Step	Time	TrainLoss	TrainOrderAcc	TrainGapMAE	ValidLoss	ValidOrderAcc	ValidGapMAE

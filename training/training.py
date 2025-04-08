@@ -121,7 +121,7 @@ def main(args):
         train_gap_mae_accum = 0.0
         train_valid_batches = 0
 
-        for batch_idx, batch_data in enumerate(train_loader):
+        for _, batch_data in enumerate(train_loader):
             padded_embeddings, bool_attention_mask, padded_target_orders, padded_target_gaps, batch_labels = batch_data
 
             if padded_embeddings.shape[0] == 0:
@@ -402,6 +402,11 @@ if __name__ == "__main__":
     argparser.add_argument("--debug", type=bool, default=False, help="minimal data loading for debugging")
     argparser.add_argument("--gradient_norm", type=float, default=-1.0, help="clip gradient norm, set to negative to omit clipping")
     argparser.add_argument("--mixed_precision", type=bool, default=True, help="train with mixed precision")
+    argparser.add_argument("--num_workers", type=int, default=1, help="number of workers for data loading")
+    argparser.add_argument("--fragment_transformer_heads", type=int, default=8, help="number of heads for the fragment transformer")
+    argparser.add_argument("--fragment_transformer_ff_dim", type=int, default=1024, help="feed-forward dimension for the fragment transformer")
+    argparser.add_argument("--max_fragments_in_seq", type=int, default=1000, help="maximum number of fragments in a sequence")
+    argparser.add_argument("--learning_rate", type=float, default=0.0001, help="learning rate")
  
     args = argparser.parse_args()    
     main(args)   
