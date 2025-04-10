@@ -580,79 +580,91 @@ if __name__ == "__main__":
     parser.add_argument("--fragment_length", type=int, default=10)
     args = parser.parse_args()
     fragment_length = args.fragment_length
+    list_of_fragments = []
 
     # print current working directory
     print(os.getcwd())
+    # find subfolders in data_folder and only directories
     for subfolder in os.listdir(args.data_folder):
+        if not os.path.isdir(os.path.join(args.data_folder, subfolder)):
+            continue
         for filename in os.listdir(os.path.join(args.data_folder, subfolder)):
             if not filename.endswith('.cif.gz'):
                 continue
             chains,metadata = parse_mmcif(os.path.join(args.data_folder, subfolder, filename))
-            ID = metadata['id']
-            # remove .cif.gz from filename and replace with .pt
-            OUT = os.path.abspath(os.path.join(args.data_folder, '..', "pt_files", subfolder, filename.replace('.cif.gz', '.pt')))
-            # make directory if it doesn't exist
-            os.makedirs(os.path.dirname(OUT), exist_ok=True)
-            # Remove TMalign calculation for now as it's not directly used for fragmentation
-            # tm_pairs = get_tm_pairs(chains)
-            # if 'chains' in metadata.keys() and len(metadata['chains'])>0:
-            #     chids = metadata['chains']
-            #     tm = []
-            #     for a in chids:
-            #         tm_a = []
-            #         for b in chids:
-            #             tm_ab = tm_pairs[(a,b)]
-            #             if tm_ab is None:
-            #                 tm_a.append([0.0,0.0,999.9])
-            #             else:
-            #                 tm_a.append([tm_ab[k] for k in ['tm','seqid','rmsd']])
-            #         tm.append(tm_a)
-            #     metadata.update({'tm':tm})
+            if chains:
+                ID = metadata['id']
+                # remove .cif.gz from filename and replace with .pt
+                OUT = os.path.abspath(os.path.join(args.data_folder, '..', "pt_files", subfolder, filename.replace('.cif.gz', '.pt')))
+                # make directory if it doesn't exist
+                os.makedirs(os.path.dirname(OUT), exist_ok=True)
+                # Remove TMalign calculation for now as it's not directly used for fragmentation
+                # tm_pairs = get_tm_pairs(chains)
+                # if 'chains' in metadata.keys() and len(metadata['chains'])>0:
+                #     chids = metadata['chains']
+                #     tm = []
+                #     for a in chids:
+                #         tm_a = []
+                #         for b in chids:
+                #             tm_ab = tm_pairs[(a,b)]
+                #             if tm_ab is None:
+                #                 tm_a.append([0.0,0.0,999.9])
+                #             else:
+                #                 tm_a.append([tm_ab[k] for k in ['tm','seqid','rmsd']])
+                #         tm.append(tm_a)
+                #     metadata.update({'tm':tm})
 
-            for k,v in chains.items():
-                nres = (v['mask'][:,:3].sum(1)==3).sum()
-                print(">%s_%s %s %s %s %d %d\n%s"%(ID,k,metadata['date'],metadata['method'],
-                                                metadata['resolution'],len(v['seq']),nres,v['seq']))
+                for k,v in chains.items():
+                    nres = (v['mask'][:,:3].sum(1)==3).sum()
+                    print(">%s_%s %s %s %s %d %d\n%s"%(ID,k,metadata['date'],metadata['method'],
+                                                    metadata['resolution'],len(v['seq']),nres,v['seq']))
+                    
+                    # Extract fragment
+                    # generate sse from pdbx file
+                    pdbx_file = os.path.join(args.data_folder, subfolder, filename)
+
+                    fragments = extract_sse_fragments(v)
+
+                    if fragments:
+                        # Calculate order (trivial for now) and gaps
+                        order = list(range(len(fragments)))
+                        gaps = []
+                        if len(fragments) > 1:
+                            gaps = [fragments[i+1]['start_idx'] - fragments[i]['end_idx'] - 1
+                                    for i in range(len(fragments)-1)]
+
+                        # Prepare data for saving
+                        # Convert numpy arrays in fragments to Tensors
+                        save_fragments = []
+                        for frag in fragments:
+                            save_frag = frag.copy() # Avoid modifying original list
+                            save_frag['xyz'] = torch.Tensor(save_frag['xyz'])
+                            save_frag['direction'] = torch.Tensor(save_frag['direction']) # Convert direction vector
+                            save_fragments.append(save_frag)
+
+                        save_data = {
+                            'fragments': save_fragments,
+                            'order': order, # Save as list
+                            'gaps': gaps   # Save as list
+                        }
+
+                        # Save fragment data for this chain
+                        torch.save(save_data, f"{OUT}_{k}_frags.pt")
+                        list_of_fragments.append([f"{OUT}_{k}_frags.pt",k,metadata['date'],metadata['resolution'],ID,v['seq']])
+                    else:
+                        # Optionally handle cases where no fragments are extracted for a chain
+                        print(f"No fragments extracted for chain {k}")
+                    # Save metadata (unchanged, could potentially remove chain-specific info if not needed)
+                    meta_pt = {}
+                    for k,v in metadata.items():
+                        if "asmb_xform" in k or k=="tm":
+                            v = torch.Tensor(v)
+                        meta_pt.update({k:v})
+                    torch.save(meta_pt, OUT)
+    # create a file called list.csv that contains CHAINID,DEPOSITION,RESOLUTION,HASH,CLUSTER,SEQUENCE
+    #with open(os.path.join(args.data_folder, 'list.csv'), 'w') as f:
+    #    f.write("CHAINID,DEPOSITION,RESOLUTION,HASH,CLUSTER,SEQUENCE\n")
+    #    for frag in list_of_fragments:
+    #        f.write(f"{frag[0]},{frag[1]},{frag[2]},{frag[3]},{frag[4]},{frag[5]}\n")
                 
-                # Extract fragment
-                # generate sse from pdbx file
-                pdbx_file = os.path.join(args.data_folder, subfolder, filename)
-
-                fragments = extract_sse_fragments(v)
-
-                if fragments:
-                    # Calculate order (trivial for now) and gaps
-                    order = list(range(len(fragments)))
-                    gaps = []
-                    if len(fragments) > 1:
-                        gaps = [fragments[i+1]['start_idx'] - fragments[i]['end_idx'] - 1
-                                for i in range(len(fragments)-1)]
-
-                    # Prepare data for saving
-                    # Convert numpy arrays in fragments to Tensors
-                    save_fragments = []
-                    for frag in fragments:
-                        save_frag = frag.copy() # Avoid modifying original list
-                        save_frag['xyz'] = torch.Tensor(save_frag['xyz'])
-                        save_frag['direction'] = torch.Tensor(save_frag['direction']) # Convert direction vector
-                        save_fragments.append(save_frag)
-
-                    save_data = {
-                        'fragments': save_fragments,
-                        'order': order, # Save as list
-                        'gaps': gaps   # Save as list
-                    }
-
-                    # Save fragment data for this chain
-                    torch.save(save_data, f"{OUT}_{k}_frags.pt")
-                else:
-                    # Optionally handle cases where no fragments are extracted for a chain
-                    print(f"No fragments extracted for chain {k}")
-                # Save metadata (unchanged, could potentially remove chain-specific info if not needed)
-                meta_pt = {}
-                for k,v in metadata.items():
-                    if "asmb_xform" in k or k=="tm":
-                        v = torch.Tensor(v)
-                    meta_pt.update({k:v})
-                torch.save(meta_pt, OUT)
-
+                
